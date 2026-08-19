@@ -1,43 +1,43 @@
 #!/usr/bin/env node
 /**
- * dsh-fix-duplicate-loader-id â æ£æµå¹¶ä¿®å¤ dsh profile å¯å¨å´©æºï¼
- * `duplicate loader entry id: <id>` / `plugin tree failed to load`ã
+ * dsh-fix-duplicate-loader-id — 检测并修复 dsh profile 启动崩溃：
+ * `duplicate loader entry id: <id>` / `plugin tree failed to load`。
  *
- * åçï¼å¯¹åº vendor/include ç applyEntryPatches è¯­ä¹ï¼ï¼
- *   - `- insert:`ï¼æ  id çé¡¶å±ç®åï¼æ `- id: <group>` + `insert:` é®ï¼
- *     å entry åè¡¨ push æ° rowï¼åå»ºï¼ãåä¸ id è¢« push ä¸¤æ¬¡ â loader ç
- *     EntryGroup.update æ `duplicate loader entry id`ï¼ä¸­æ­¢æ´ä¸ªå¯å¨ã
- *   - é¡¶å± `- id: <id>`ï¼æ  insertï¼= id-targeted patchï¼æ id ä¿®æ¹å·²å­å¨
- *     rowï¼ç®æ ç¼ºå¤±åª warnï¼`patch: entry %C not found`ï¼è·³è¿ï¼ä¸æ¥éã
+ * 原理（对应 vendor/include 的 applyEntryPatches 语义）：
+ *   - `- insert:`（无 id 的顶层简写）或 `- id: <group>` + `insert:` 键：
+ *     向 entry 列表 push 新 row（创建）。同一 id 被 push 两次 → loader 的
+ *     EntryGroup.update 抛 `duplicate loader entry id`，中止整个启动。
+ *   - 顶层 `- id: <id>`（无 insert）= id-targeted patch：按 id 修改已存在
+ *     row；目标缺失只 warn（`patch: entry %C not found`）跳过，不报错。
  *
- * å æ­¤ä¿®å¤è·¯çº¿ï¼æãååºç°ãçéå¤ insert å­é¡¹è½¬æ¢ä¸ºé¡¶å± id-targeted
- * patchï¼å»æ name è¡ââid patch å¸¦ name ä¸ä¸ç®æ ä¸ç¬¦ä¼ warn è·³è¿ï¼
- * ä¿ç config/disabled ä¸æ³¨éï¼ã
+ * 因此修复路线：把「后出现」的重复 insert 子项转换为顶层 id-targeted
+ * patch（去掉 name 行——id patch 带 name 且与目标不符会 warn 跳过；
+ * 保留 config/disabled 与注释）。
  *
- * ç¨æ³ï¼
+ * 用法：
  *   node dsh-fix-duplicate-loader-id.mjs [--profile <dir>] [--fix] [--dry-run] [--json]
  *
- * é»è®¤æ«æ ~/.dsh/profiles/*ï¼æ¯ä¸ªå« dsh.profile.bundles ç profileï¼ã
- * çº¯ Nodeï¼é¶ç¬¬ä¸æ¹ä¾èµï¼åªè¯»æ£æµæ¶ç»ä¸åçã
+ * 默认扫描 ~/.dsh/profiles/*（每个含 dsh.profile.bundles 的 profile）。
+ * 纯 Node，零第三方依赖；只读检测时绝不写盘。
  */
 import { readFileSync, writeFileSync, copyFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
 
-const HELP = `ç¨æ³:
+const HELP = `用法:
   node dsh-fix-duplicate-loader-id.mjs [options]
 
-éé¡¹:
-  --profile <dir>   åªæ£æ¥æå® profile ç®å½ï¼é»è®¤æ«æ ~/.dsh/profiles/*ï¼
-  --fix             èªå¨ä¿®å¤ï¼éå¤ insert å­é¡¹ â id-targeted patchï¼åå¤ä»½ .dsh-fix.bakï¼
-  --dry-run         ä¸ --fix åé»è¾ä½åªæå°å°æ§è¡çä¿®æ¹ï¼ä¸åç
-  --json            è¾åº JSON æ¥å
-  -h, --help        æ¾ç¤ºå¸®å©
+选项:
+  --profile <dir>   只检查指定 profile 目录（默认扫描 ~/.dsh/profiles/*）
+  --fix             自动修复：重复 insert 子项 → id-targeted patch（先备份 .dsh-fix.bak）
+  --dry-run         与 --fix 同逻辑但只打印将执行的修改，不写盘
+  --json            输出 JSON 报告
+  -h, --help        显示帮助
 
-éåºç : 0 = æ å²çª; 1 = å­å¨å²çªï¼æªä¿®å¤æ¶ï¼; 2 = ç¨æ³/IO éè¯¯
+退出码: 0 = 无冲突; 1 = 存在冲突（未修复时）; 2 = 用法/IO 错误
 `
 
-// ââ åæ°è§£æ âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── 参数解析 ─────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
 const opts = { profile: null, fix: false, dryRun: false, json: false }
 for (let i = 0; i < args.length; i++) {
@@ -47,17 +47,17 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--dry-run') opts.dryRun = true
   else if (a === '--json') opts.json = true
   else if (a === '-h' || a === '--help') { process.stdout.write(HELP); process.exit(0) }
-  else { process.stderr.write(`æªç¥åæ°: ${a}\n\n${HELP}`); process.exit(2) }
+  else { process.stderr.write(`未知参数: ${a}\n\n${HELP}`); process.exit(2) }
 }
 
-// ââ è¡çº§ YAML æ«æè§£æï¼åªè¯å« patch éè¦çç»æï¼ä¸å¼å¥ yaml ä¾èµï¼ââââââââââ
+// ── 行级 YAML 扫描解析（只识别 patch 需要的结构，不引入 yaml 依赖）──────────
 /**
- * è§£æä¸ä¸ª patch æä»¶çé¡¶å± entriesã
- * è¿å [{ type:'patch'|'insert'|'other', id?, line, endLine, insertRows?, hasInsertKey }]
- *   - type 'insert'ï¼é¡¶å±ç®å `- insert:`ï¼insertRows ä¸ºå¶å­é¡¹ï¼å¯è½ä¸ºç©ºï¼
- *   - type 'patch'ï¼`- id: xxx` é¡¶å± entryï¼è¥å¸¦ `insert:` é®ï¼insertRows ä¸ºå­é¡¹
- *   - type 'other'ï¼å¶ä»é¡¶å± entryï¼å¿½ç¥ï¼
- * å­é¡¹: { id, line, endLine, commentStart, insertRows?, hasInsertKey }
+ * 解析一个 patch 文件的顶层 entries。
+ * 返回 [{ type:'patch'|'insert'|'other', id?, line, endLine, insertRows?, hasInsertKey }]
+ *   - type 'insert'：顶层简写 `- insert:`，insertRows 为其子项（可能为空）
+ *   - type 'patch'：`- id: xxx` 顶层 entry；若带 `insert:` 键，insertRows 为子项
+ *   - type 'other'：其他顶层 entry（忽略）
+ * 子项: { id, line, endLine, commentStart, insertRows?, hasInsertKey }
  */
 function parsePatch(text) {
   const lines = text.split('\n')
@@ -72,24 +72,24 @@ function parsePatch(text) {
     return m ? m[2] : null
   }
 
-  /** ä» line å¼å§è§£æä¸ä¸ª entryï¼åè¡¨é¡¹ `- key:`ï¼ï¼è¿å {endLine, insertRows} */
+  /** 从 line 开始解析一个 entry（列表项 `- key:`），返回 {endLine, insertRows} */
   function parseEntry(line, indent) {
     const key = keyOf(lines[line])
     const insertRows = []
     let j = line + 1
-    let insertIndent = null // insert é®è¡çç¼©è¿
-    let lastContent = -1 // æåä¸ä¸ªå®è´¨åå®¹è¡ï¼æ³¨é/ç©ºè¡ä¸è®¡å¥ endLineï¼
+    let insertIndent = null // insert 键行的缩进
+    let lastContent = -1 // 最后一个实质内容行（注释/空行不计入 endLine）
     while (j < lines.length) {
       const l = lines[j]
       if (isEmpty(l) || isComment(l)) { j++; continue }
       const m = l.match(/^(\s*)(\S)/)
       const ind = m ? m[1].length : 0
-      if (ind <= indent) break // åå°ä¸å±ï¼å«ä¸ä¸ä¸ªåçº§å­é¡¹ï¼ï¼ä¸è®¡å¥æ¬ entry
+      if (ind <= indent) break // 回到上层（含下一个同级子项），不计入本 entry
       lastContent = j
       const k = keyOf(l)
       if (k === 'insert' && /:\s*$/.test(l.trim())) {
         insertIndent = ind
-        // å­åè¡¨é¡¹ï¼ç¼©è¿ > insertIndent ç `- ` è¡
+        // 子列表项：缩进 > insertIndent 的 `- ` 行
         let s = j + 1
         let childIndent = null
         while (s < lines.length) {
@@ -119,7 +119,7 @@ function parsePatch(text) {
     return { endLine: lastContent >= 0 ? lastContent : j - 1, insertRows, hasInsertKey: insertIndent !== null }
   }
 
-  /** entry ä¸æ¹ç´§é»çè¿ç»­æ³¨éè¡èµ·å§ï¼ä¸å«ç©ºè¡åéï¼ */
+  /** entry 上方紧邻的连续注释行起始（不含空行分隔） */
   function commentStart(line) {
     let s = line - 1
     while (s >= 0 && isComment(lines[s])) s--
@@ -132,7 +132,7 @@ function parsePatch(text) {
     if (entryStart(l, 0)) {
       const key = keyOf(l)
       if (key === 'insert') {
-        // é¡¶å±ç®å `- insert:`ï¼è§£æå­åè¡¨ï¼ä¸ group insert ç¸åè§åï¼
+        // 顶层简写 `- insert:`：解析子列表（与 group insert 相同规则）
         const parsed = { type: 'insert', line: i, id: null }
         let j = i + 1
         let childIndent = null
@@ -182,7 +182,7 @@ function parsePatch(text) {
   return entries
 }
 
-/** æ·±åº¦æ¶é insert å­é¡¹ï¼å«åµå¥ group ç insertï¼ */
+/** 深度收集 insert 子项（含嵌套 group 的 insert） */
 function collectInsertRows(entries) {
   const rows = []
   const walk = (list) => {
@@ -199,7 +199,7 @@ function collectInsertRows(entries) {
   return rows
 }
 
-/** æ·±åº¦æ¶éé¡¶å± id patchï¼å«åµå¥ group åå­é¡¹ï¼ */
+/** 深度收集顶层 id patch（含嵌套 group 内子项） */
 function collectTopIds(entries) {
   const ids = []
   const walk = (list) => {
@@ -212,8 +212,8 @@ function collectTopIds(entries) {
   return ids
 }
 
-// ââ profile æ«æ ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-/** è¿å [{name, dir, bundles, patchFiles: [{label, path, text}]}] */
+// ── profile 扫描 ────────────────────────────────────────────────────────────
+/** 返回 [{name, dir, bundles, patchFiles: [{label, path, text}]}] */
 function scanProfiles() {
   const roots = opts.profile ? [resolve(opts.profile)] : defaultProfileRoots()
   const profiles = []
@@ -221,7 +221,7 @@ function scanProfiles() {
     const pkgPath = join(dir, 'package.json')
     if (!existsSync(pkgPath)) continue
     let pkg = null
-    try { pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) } catch { /* å¿½ç¥å package.json */ }
+    try { pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) } catch { /* 忽略坏 package.json */ }
     if (!pkg?.dsh?.profile?.bundles) continue
     const bundles = pkg.dsh.profile.bundles
     const patchFiles = []
@@ -230,7 +230,7 @@ function scanProfiles() {
       if (existsSync(p)) patchFiles.push({ label: `${b} (cordis.patch.yml)`, path: p })
     }
     const user = join(dir, 'cordis.patch.yml')
-    if (existsSync(user)) patchFiles.push({ label: `${basename(dir)}/cordis.patch.yml (ç¨æ·å±)`, path: user })
+    if (existsSync(user)) patchFiles.push({ label: `${basename(dir)}/cordis.patch.yml (用户层)`, path: user })
     profiles.push({ name: basename(dir), dir, bundles, patchFiles })
   }
   return profiles
@@ -244,11 +244,11 @@ function defaultProfileRoots() {
     .filter((p) => { try { return statSync(p).isDirectory() } catch { return false } })
 }
 
-// ââ æ£æµ âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── 检测 ─────────────────────────────────────────────────────────────
 function detect(profiles) {
   const report = { profiles: [] }
   for (const prof of profiles) {
-    const seen = new Map() // insert id â {file, line}
+    const seen = new Map() // insert id → {file, line}
     const conflicts = []
     const fileInfos = []
     for (const pf of prof.patchFiles) {
@@ -289,23 +289,23 @@ function detect(profiles) {
   return report
 }
 
-// ââ ä¿®å¤ âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── 修复 ───────────────────────────────────────────────────────────────
 const FIX_HEADER = (id) => [
-  `# [dsh-fix] ${id} å·²ç±æ´æ©ç bundle å±æå¥ï¼æ­¤å¤ç± insert è½¬ä¸º id-targeted patchï¼`,
-  `# row å·²å­å¨ï¼ç»åå¯å¨ï¼â å¹ç­ no-opï¼row ä¸å­å¨ï¼è£¸å¯å¨ï¼â ä»æ å®³è­¦åã`,
-  `# æ³¨æï¼éè£/åçº§è¯¥æä»¶ï¼pnpm install/updateãdsh pluginï¼ä¼è¦çæ­¤æä»¶ï¼è¯·ä¿çæ¬ä¿®æ¹ææ¨å¨ä¸æ¸¸ã`,
+  `# [dsh-fix] ${id} 已由更早的 bundle 层插入；此处由 insert 转为 id-targeted patch：`,
+  `# row 已存在（组合启动）→ 幂等 no-op；row 不存在（裸启动）→ 仅无害警告。`,
+  `# 注意：重装/升级该插件（pnpm install/update、dsh plugin）会覆盖此文件，请保留本修改或推动上游。`,
 ]
 
-/** æ insert å­é¡¹ææ¬è½¬æ¢ä¸ºé¡¶å± id-targeted patch ææ¬ï¼å»ç¼©è¿ãå  name è¡ï¼ã */
+/** 把 insert 子项文本转换为顶层 id-targeted patch 文本（去缩进、删 name 行）。 */
 function toPatchText(row, lines) {
   const out = []
   for (let i = row.commentStart; i <= row.endLine; i++) {
     const l = lines[i]
     if (l.trim() === '') { out.push(''); continue }
     if (/^\s*#/.test(l)) { out.push(l.trimStart()); continue }
-    // å æ name è¡ï¼id patch å¸¦ name ä¸ä¸ç®æ ä¸ç¬¦ä¼ warn è·³è¿ï¼
+    // 删掉 name 行（id patch 带 name 且与目标不符会 warn 跳过）
     if (/^\s{4,}name:/.test(l)) continue
-    // å»æå­é¡¹åºåç¼©è¿ï¼= è¯¥ entry è¡çç¼©è¿ï¼
+    // 去掉子项基准缩进（= 该 entry 行的缩进）
     const m = l.match(/^(\s*)(\S)/)
     const ind = m ? m[1].length : 0
     out.push(' '.repeat(Math.max(0, ind - row.indent)) + l.trimStart())
@@ -321,7 +321,7 @@ function entryIndent(lines, line) {
 function applyFix(report, write) {
   const plan = [] // {file, label, id, line, patchText, removeInsertHead}
   for (const prof of report.profiles) {
-    // ææä»¶åç»
+    // 按文件分组
     const byFile = new Map()
     for (const c of prof.conflicts) {
       if (!byFile.has(c.file)) byFile.set(c.file, [])
@@ -332,24 +332,24 @@ function applyFix(report, write) {
       const lines = text.split('\n')
       const entries = parsePatch(text)
       const topIds = new Set(collectTopIds(entries))
-      // è¡å·ä» 1-based è½¬ 0-based
+      // 行号从 1-based 转 0-based
       const cs = conflicts.map((c) => ({ ...c, line0: c.line - 1 }))
-      // èªä¸èä¸å¤çï¼è¡å·æ å°ä»¥åè¡å·ä¸ºåºåï¼æåç»ä¸è¿æ»¤ï¼
-      const remove = new Set() // éè¦å é¤çåè¡å·
-      const appends = [] // è¿½å å°æä»¶å°¾ç patch ææ¬ï¼å«æå± idï¼
+      // 自下而上处理（行号映射以原行号为基准，最后统一过滤）
+      const remove = new Set() // 需要删除的原行号
+      const appends = [] // 追加到文件尾的 patch 文本（含所属 id）
       for (const c of cs) {
         const row = c.row
-        row.indent = entryIndent(lines, row.line) // row.line ä¸º 0-based
+        row.indent = entryIndent(lines, row.line) // row.line 为 0-based
         const block = toPatchText(row, lines)
         if (!topIds.has(c.id)) {
           appends.push({ id: c.id, lines: [...FIX_HEADER(c.id), ...block] })
         }
         for (let i = row.commentStart; i <= row.endLine; i++) remove.add(i)
       }
-      // ç§»é¤ãå­é¡¹å·²è¢«å ç©ºãç insert é®è¡ï¼- insert: / `  insert:`ï¼
+      // 移除「子项已被删空」的 insert 键行（- insert: / `  insert:`）
       const dropHead = new Set()
       for (const e of entries) {
-        // æ¾é®è¡ï¼ç®å insert ç `- insert:` è¡ï¼æ patch entry åå®¹ä¸­ç `  insert:` è¡
+        // 找键行：简写 insert 的 `- insert:` 行，或 patch entry 内容中的 `  insert:` 行
         let keyIdx = -1
         if (e.type === 'insert') keyIdx = e.line
         else if (e.type === 'patch' && e.hasInsertKey) {
@@ -358,7 +358,7 @@ function applyFix(report, write) {
           }
         }
         if (keyIdx < 0 || remove.has(keyIdx)) continue
-        // é®è¡ä¹åå°ä¸ä¸ä¸ªåçº§ entry åæ¯å¦è¿ææ®çå­é¡¹
+        // 键行之后到下一个同级 entry 前是否还有残留子项
         const keyInd = entryIndent(lines, keyIdx)
         let hasChild = false
         for (let k = keyIdx + 1; k < lines.length; k++) {
@@ -373,7 +373,7 @@ function applyFix(report, write) {
         }
         if (!hasChild) dropHead.add(keyIdx)
       }
-      // æåè¡å·ç»ä¸è¿æ»¤ï¼removedSet âª dropHeadï¼
+      // 按原行号统一过滤（removedSet ∪ dropHead）
       const finalLines = []
       for (let idx = 0; idx < lines.length; idx++) {
         if (remove.has(idx) || dropHead.has(idx)) continue
@@ -394,11 +394,11 @@ function applyFix(report, write) {
   return plan
 }
 
-// ââ ä¸»æµç¨ âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── 主流程 ─────────────────────────────────────────────────────────────────
 function main() {
   const profiles = scanProfiles()
   if (!profiles.length) {
-    process.stderr.write(`æªæ¾å°ä»»ä½å« dsh.profile.bundles ç profileï¼é»è®¤æ« ~/.dsh/profiles/*ï¼ã\nå¯ç¨ --profile <dir> æå®ã\n`)
+    process.stderr.write(`未找到任何含 dsh.profile.bundles 的 profile（默认扫 ~/.dsh/profiles/*）。\n可用 --profile <dir> 指定。\n`)
     process.exit(2)
   }
   const report = detect(profiles)
@@ -411,24 +411,24 @@ function main() {
     for (const p of report.profiles) {
       process.stdout.write(`[${p.name}] ${p.dir}\n`)
       for (const f of p.fileInfos) {
-        process.stdout.write(`  ${f.label}ï¼insert Ã${f.inserts}ï¼id patch Ã${f.topIds}${f.error ? `ï¼è¯»åå¤±è´¥: ${f.error}` : ''}ï¼\n`)
+        process.stdout.write(`  ${f.label}（insert ×${f.inserts}，id patch ×${f.topIds}${f.error ? `，读取失败: ${f.error}` : ''}）\n`)
       }
       if (!p.conflicts.length) {
-        process.stdout.write(`  â æ éå¤ insert id\n`)
+        process.stdout.write(`  ✓ 无重复 insert id\n`)
       } else {
-        process.stdout.write(`  â ${p.conflicts.length} å¤éå¤ insert idï¼\n`)
+        process.stdout.write(`  ✗ ${p.conflicts.length} 处重复 insert id：\n`)
         for (const c of p.conflicts) {
-          process.stdout.write(`    - ${c.id}ï¼é¦æ¬¡æå¥ ${c.firstLabel}:${c.firstLine} â éå¤æå¥ ${c.label}:${c.line}\n`)
+          process.stdout.write(`    - ${c.id}：首次插入 ${c.firstLabel}:${c.firstLine} ← 重复插入 ${c.label}:${c.line}\n`)
         }
       }
     }
-    process.stdout.write(total ? `\nå± ${total} å¤å²çªã\n` : `\nå¨é¨ profile æ å²çªã\n`)
+    process.stdout.write(total ? `\n共 ${total} 处冲突。\n` : `\n全部 profile 无冲突。\n`)
   }
 
   if (total === 0) process.exit(0)
 
   if (!opts.fix && !opts.dryRun) {
-    process.stdout.write(`\nä¿®å¤å»ºè®®ï¼node dsh-fix-duplicate-loader-id.mjs --profile <dir> --fix\nï¼--dry-run å¯åé¢è§ä¿®æ¹ï¼\n`)
+    process.stdout.write(`\n修复建议：node dsh-fix-duplicate-loader-id.mjs --profile <dir> --fix\n（--dry-run 可先预览修改）\n`)
     process.exit(1)
   }
 
@@ -438,21 +438,21 @@ function main() {
       process.stdout.write(JSON.stringify({ fixed: plan.map((p) => ({ file: p.file, ids: p.ids, line: p.line })) }, null, 2) + '\n')
     } else {
       for (const p of plan) {
-        process.stdout.write(`\n${opts.fix ? 'å·²ä¿®å¤' : '[dry-run] å°ä¿®å¤'} ${p.label}\n`)
+        process.stdout.write(`\n${opts.fix ? '已修复' : '[dry-run] 将修复'} ${p.label}\n`)
         for (const [i, app] of p.patch.entries()) {
-          process.stdout.write(`  â id ${p.ids[i] ?? '?'}ï¼è½¬ id-targeted patchï¼è¿½å å°æä»¶æ«å°¾ï¼\n`)
+          process.stdout.write(`  → id ${p.ids[i] ?? '?'}：转 id-targeted patch，追加到文件末尾：\n`)
           for (const l of app) process.stdout.write(`    ${l}\n`)
         }
       }
       if (opts.fix) {
-        process.stdout.write(`\nå·²å¤ä»½ï¼<æä»¶>.dsh-fix.bakãéæ°æ£æµï¼\n`)
+        process.stdout.write(`\n已备份：<文件>.dsh-fix.bak。重新检测：\n`)
         const again = detect(scanProfiles())
         const left = again.profiles.reduce((n, p) => n + p.conflicts.length, 0)
-        process.stdout.write(left ? `â  ä»æ ${left} å¤å²çªï¼è¯·æ£æ¥ä»¥ä¸è¾åºã\n` : `â å¤æ£éè¿ï¼0 å²çªã\n`)
+        process.stdout.write(left ? `⚠ 仍有 ${left} 处冲突，请检查以上输出。\n` : `✓ 复检通过：0 冲突。\n`)
       }
     }
   }
 }
 
-// ä»ä½ä¸º CLI å¥å£è¿è¡æ¶æ§è¡ mainï¼è¢« import æ¶ä¸è§¦åå¯ä½ç¨ï¼
+// 仅作为 CLI 入口运行时执行 main（被 import 时不触发副作用）
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) main()
