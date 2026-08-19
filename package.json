@@ -1,0 +1,38 @@
+{
+  "name": "dsh-fix-duplicate-loader-id",
+  "version": "0.1.0",
+  "description": "DSH skill: detect & fix duplicate loader entry id boot crashes - converts duplicate - insert: rows into id-targeted patches so dsh web / tui profiles boot reliably.",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "cordis.patch.yml",
+    "skills",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "skill",
+    "cordis"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhao1012/dsh-fix-duplicate-loader-id.git"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
