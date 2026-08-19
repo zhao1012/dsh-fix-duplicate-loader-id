@@ -37,7 +37,7 @@ const HELP = `用法:
 退出码: 0 = 无冲突; 1 = 存在冲突（未修复时）; 2 = 用法/IO 错误
 `
 
-// ── 参数解析 ─────────────────────────────────────────────────────────────────
+// ── 参数解析 ────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
 const opts = { profile: null, fix: false, dryRun: false, json: false }
 for (let i = 0; i < args.length; i++) {
@@ -244,7 +244,7 @@ function defaultProfileRoots() {
     .filter((p) => { try { return statSync(p).isDirectory() } catch { return false } })
 }
 
-// ── 检测 ─────────────────────────────────────────────────────────────
+// ── 检测 ────────────────────────────────────────────────────────────────────
 function detect(profiles) {
   const report = { profiles: [] }
   for (const prof of profiles) {
@@ -289,7 +289,7 @@ function detect(profiles) {
   return report
 }
 
-// ── 修复 ───────────────────────────────────────────────────────────────
+// ── 修复 ────────────────────────────────────────────────────────────────────
 const FIX_HEADER = (id) => [
   `# [dsh-fix] ${id} 已由更早的 bundle 层插入；此处由 insert 转为 id-targeted patch：`,
   `# row 已存在（组合启动）→ 幂等 no-op；row 不存在（裸启动）→ 仅无害警告。`,
@@ -394,7 +394,7 @@ function applyFix(report, write) {
   return plan
 }
 
-// ── 主流程 ─────────────────────────────────────────────────────────────────
+// ── 主流程 ──────────────────────────────────────────────────────────────────
 function main() {
   const profiles = scanProfiles()
   if (!profiles.length) {
