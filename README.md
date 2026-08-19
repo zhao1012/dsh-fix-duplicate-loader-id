@@ -29,8 +29,8 @@ TypeError: duplicate loader entry id: storage
 ```sh
 git clone https://github.com/zhao1012/dsh-fix-duplicate-loader-id.git ~/.agents/skills/dsh-fix-duplicate-loader-id
 # 或只复制核心文件：
-#   SKILL.md                                                       → ~/.agents/skills/dsh-fix-duplicate-loader-id/
-#   scripts/dsh-fix-duplicate-loader-id.mjs                        → ~/.agents/skills/dsh-fix-duplicate-loader-id/scripts/
+#   SKILL.md                      → ~/.agents/skills/dsh-fix-duplicate-loader-id/
+#   scripts/dsh-fix-duplicate-loader-id.mjs → ~/.agents/skills/dsh-fix-duplicate-loader-id/scripts/
 ```
 
 DSH 的 skill 加载器会自动发现（`$DSH_AGENTS_HOME` 缺省 `~/.agents`）。之后只要对 agent 说「dsh 启动报 duplicate loader entry id」或触发对应错误特征，agent 就会按 SKILL.md 执行本 skill。
@@ -86,3 +86,9 @@ pnpm dsh web    # 越过 plugin-tree 加载，出现监听日志
 ## License
 
 MIT © zhao1012
+
+## 赞助（Sponsor）
+
+如果这个 skill 帮你省下了排查 `duplicate loader entry id` 的时间、解决了实际问题，欢迎请我喝杯咖啡 ☕，或者支持一点 token 费用——你的支持是持续维护与开源分享的最大动力 ❤️
+
+![赞助收款码](sponsor-qr.jpg)
