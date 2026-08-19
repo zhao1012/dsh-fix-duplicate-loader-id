@@ -1,0 +1,6 @@
+# dsh-fix-duplicate-loader-id - bundle patch.
+# Install: dsh plugin --profile web add dsh-fix-duplicate-loader-id
+# (or github:zhao1012/dsh-fix-duplicate-loader-id)
+- insert:
+    - id: dsh-fix-duplicate-loader-id
+      name: 'dsh-fix-duplicate-loader-id'
